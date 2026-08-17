@@ -9,8 +9,12 @@ variable "project_name" {
 }
 
 variable "public_subnets" {
-  type = map(object({
-    cidr_block = string
-  }))
-  description = "Public subnets"
+  type = map(
+    object(
+      {
+        cidr_block = string
+      }
+    )
+  )
+  description = "Map of public subnet configurations"
 }

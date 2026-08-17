@@ -6,7 +6,8 @@ resource "aws_vpc" "main" {
 }
 
 resource "aws_subnet" "main" {
-  for_each = var.public_subnets
-  vpc_id   = aws_vpc.main.id
-
+  for_each                = var.public_subnets
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = each.value.cidr_block
+  map_public_ip_on_launch = true
 }
