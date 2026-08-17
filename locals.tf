@@ -1,5 +1,7 @@
 locals {
   common_tags = {
-    Name = var.project_name
+    Project = var.project_name
+    ManagedBy = "Terraform"
+    Environment = "Lab"
   }
 }

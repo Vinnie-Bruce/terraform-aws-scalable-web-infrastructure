@@ -1,8 +1,8 @@
 resource "aws_vpc" "main" {
   cidr_block = var.vpc_cidr
-  tags = {
-    Name = "Main VPC"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${var.project_name}-VPC"
+  })
 }
 
 resource "aws_subnet" "main" {
