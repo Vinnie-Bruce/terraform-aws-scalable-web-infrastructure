@@ -49,15 +49,6 @@ resource "aws_lb_target_group" "main" {
   }
 }
 
-resource "aws_lb_target_group_attachment" "main" {
-  target_group_arn = aws_lb_target_group.main.arn
-  for_each = {
-    for instance_name, instance in aws_instance.web : instance_name => instance
-  }
-  target_id = each.value.id
-  port      = 80
-}
-
 resource "aws_subnet" "main" {
   for_each                = var.public_subnets
   vpc_id                  = aws_vpc.main.id
@@ -85,29 +76,65 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-
-resource "aws_instance" "web" {
-  for_each                    = aws_subnet.main
-  subnet_id                   = each.value.id
-  ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "t3.micro"
-  associate_public_ip_address = true
-  security_groups             = [aws_security_group.server.id]
-  user_data                   = <<-EOF
+resource "aws_launch_template" "web" {
+  name_prefix            = "${var.project_name}-web-"
+  image_id               = data.aws_ami.amazon_linux.id
+  instance_type          = "t3.micro"
+  vpc_security_group_ids = [aws_security_group.server.id]
+  user_data = base64encode(<<-EOF
   #!/bin/bash
-  dnf install -y httpd
-  echo "<h1>Terraform ALB Node: ${each.key}</h1>" > /var/www/html/index.html
-  systemctl enable httpd
-  systemctl start httpd
-EOF
 
-  user_data_replace_on_change = true
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-instance"
-  })
-  lifecycle {
-    create_before_destroy = true
+  dnf install -y httpd
+
+  TOKEN=$(curl -sS -X PUT \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
+    http://169.254.169.254/latest/api/token)
+
+  INSTANCE_ID=$(curl -sS \
+    -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/instance-id)
+
+  AZ=$(curl -sS \
+    -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/placement/availability-zone)
+
+  cat > /var/www/html/index.html <<HTML
+  <h1>Independent Terraform Project</h1>
+  <p>Instance ID: $INSTANCE_ID</p>
+  <p>Availability Zone: $AZ</p>
+  HTML
+
+  systemctl enable --now httpd
+EOF
+  )
+}
+
+resource "aws_autoscaling_group" "web" {
+  name = "${var.project_name}-web-asg"
+
+  min_size         = 3
+  desired_capacity = 3
+  max_size         = 6
+
+  vpc_zone_identifier = [
+    for subnet in aws_subnet.main : subnet.id
+  ]
+
+  target_group_arns         = [aws_lb_target_group.main.arn]
+  health_check_type         = "ELB"
+  health_check_grace_period = 300
+
+  launch_template {
+    id      = aws_launch_template.web.id
+    version = aws_launch_template.web.latest_version
   }
+
+  tag {
+    key                 = "Name"
+    value               = "${var.project_name}-web"
+    propagate_at_launch = true
+  }
+
 }
 
 resource "aws_route_table" "main" {
