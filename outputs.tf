@@ -1,21 +1,21 @@
 output "vpc_id" {
-  value = aws_vpc.main.id
+  value = module.vpc.vpc_id
 }
 
 output "vpc_cidr" {
-  value = aws_vpc.main.cidr_block
+  value = module.vpc.vpc_cidr_block
 }
 
 output "public_subnet_id" {
-  value = { for k, v in aws_subnet.main : k => v.id }
+  value = module.vpc.subnet_ids
 }
 
 output "public_subnet_cidr_block" {
-  value = { for k, v in aws_subnet.main : k => v.cidr_block }
+  value = module.vpc.subnet_cidr_block
 }
 
 output "public_subnet_availability_zone" {
-  value = { for k, v in aws_subnet.main : k => v.availability_zone }
+  value = module.vpc.subnet_availability_zones
 }
 
 output "application_load_balancer_dns_name" {

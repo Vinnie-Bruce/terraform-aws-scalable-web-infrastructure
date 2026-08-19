@@ -1,26 +1,27 @@
-resource "aws_vpc" "main" {
-  cidr_block = var.vpc_cidr
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-VPC"
-  })
+module "vpc" {
+  source       = "./modules/vpc"
+  vpc_cidr     = var.vpc_cidr
+  project_name = var.project_name
+  public_subnets = {
+    public-1 = {
+      subnet_cidr = var.public_subnets["public-1"].cidr_block
+      subnet_az   = data.aws_availability_zones.available.names[0]
+    }
+    public-2 = {
+      subnet_cidr = var.public_subnets["public-2"].cidr_block
+      subnet_az   = data.aws_availability_zones.available.names[1]
+    }
+  }
+  tags = local.common_tags
 }
 
-resource "aws_internet_gateway" "gw" {
-  vpc_id = aws_vpc.main.id
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-GW"
-  })
-}
 
 resource "aws_lb" "main" {
   name               = "public-alb"
   internal           = false
   load_balancer_type = "application"
-  subnets = [
-    for subnet in aws_subnet.main : subnet.id
-  ]
-  security_groups = [aws_security_group.alb_sg.id]
+  subnets            = values(module.vpc.subnet_ids)
+  security_groups    = [aws_security_group.alb_sg.id]
   tags = merge(local.common_tags, {
     Name = "${var.project_name}-ALB"
   })
@@ -41,23 +42,12 @@ resource "aws_lb_target_group" "main" {
   name     = "alb-tg"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = module.vpc.vpc_id
 
   health_check {
     port     = 80
     protocol = "HTTP"
   }
-}
-
-resource "aws_subnet" "main" {
-  for_each                = var.public_subnets
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = each.value.cidr_block
-  availability_zone       = data.aws_availability_zones.available.names[index(keys(var.public_subnets), each.key)]
-  map_public_ip_on_launch = true
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-subnet"
-  })
 }
 
 
@@ -116,9 +106,7 @@ resource "aws_autoscaling_group" "web" {
   desired_capacity = 3
   max_size         = 6
 
-  vpc_zone_identifier = [
-    for subnet in aws_subnet.main : subnet.id
-  ]
+  vpc_zone_identifier = values(module.vpc.subnet_ids)
 
   target_group_arns         = [aws_lb_target_group.main.arn]
   health_check_type         = "ELB"
@@ -137,27 +125,10 @@ resource "aws_autoscaling_group" "web" {
 
 }
 
-resource "aws_route_table" "main" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.gw.id
-  }
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-public_RT"
-  })
-}
-
-resource "aws_route_table_association" "main" {
-  for_each       = aws_subnet.main
-  subnet_id      = each.value.id
-  route_table_id = aws_route_table.main.id
-}
-
 resource "aws_security_group" "server" {
   name        = "Server_SG"
   description = "Security group for ec2 instances"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.vpc.vpc_id
 
   tags = merge(local.common_tags, {
     Name = "${var.project_name}-Server_SG"
@@ -167,7 +138,7 @@ resource "aws_security_group" "server" {
 resource "aws_security_group" "alb_sg" {
   name        = "ALB_SG"
   description = "Security group for ALB"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.vpc.vpc_id
 
   tags = merge(local.common_tags, {
     Name = "${var.project_name}-ALB_SG"
